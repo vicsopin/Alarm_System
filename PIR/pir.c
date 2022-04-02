@@ -1,5 +1,6 @@
 /*
  PIR Motion Sensor Interface with Uno
+ added LED to test
  */
 
 #define F_CPU 16000000UL
