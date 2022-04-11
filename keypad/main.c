@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>
 
 /*unsigned char keypad[4][4] = {	
 	{'#','7','4','1'},
@@ -260,7 +261,12 @@ void printWelcomeMessage()
 	printf("will be prosecuted by law. By accessing this system, you agree\n");
 	printf("that your actions may be monitored if unauthorized usage is suspected.\n");
 }
-	
+
+unsigned long int password() {
+	printf("Enter password: ");
+    scanf("%lu", password);
+}
+
 void printAlarmMessage()
 {
 	printf("===================\n");
@@ -273,6 +279,10 @@ int main(void)
 	USART_init(MYUBRR);
 	stdout = &uart_output;
 	stdin = &uart_input;
+
+	DDRB = 0b00000000; // PIR inputs
+    PORTB = 0b00000001; // PIR enable only first pin
+    DDRD = 0b00001100; // PIR outputs
 	
 	// Init LED output pins
 	DDRB |= (1 << 3) | (1 << 4) | (1 << 5);
@@ -289,26 +299,55 @@ int main(void)
 		- detectMovement function currently returns true after 5 seconds
 		- add your sensor state here, return true if movement
 		*/
+		if(PINB & (1<<PB0)) {
+            
+            PORTD |= (1<<PD3);
+            
+            // I have a passive buzzer so need to oscillate
+			// Oscillation loop
+            for (i=0; i < 10; ++i)
+            {
+                PORTD |= (1<<PD2);
+                _delay_ms(1);
+                PORTD &= ~(1<<PD2);
+                _delay_ms(1);
+            }
 		
 		// System is armed and movement is detected
 		if(armed && detectMovement())
 		{
 
 
-			/* FOR VICTOR AND UMAIR: Figure out how to
-			- start timer here
-			- while true:
-				- if timeout > grace_period:
-					- fastBlink();
-					- this needs to be called asyncronously OR
-					- we then use another LED to show that grace period ended
-				- ask for password
-				- if(password == code):
-					- armed = false
-					- stop timer
-					- break
-			- 
-			*/
+			/* FOR VICTOR AND UMAIR: Figure out how to*/
+			// start timer here
+			clock_t t;
+			t = clock();
+			int grace_period = 5000; // milliseconds or seconds?
+			while(1) {
+
+				//- if timeout > grace_period:
+				t = clock() - t;
+				if(t > grace_period) {
+
+					//- fastBlink();
+					PORTB |= _BV(PB5);
+					_delay_ms(100);
+                	PORTB &= ~_BV(PB5);
+                	_delay_ms(100);
+
+					//- this needs to be called asyncronously OR
+					//- we then use another LED to show that grace period ended
+				//- ask for password
+				password();
+
+				if(password == code) {
+					armed = false;
+					t = 0;
+					break
+				}
+				
+				}
+			}
 			// Turn on LED for motion detected, ask for password
 			PORTB |= _BV(PB4);
 			printf("\nMotion detected! Input password: \n\n");
