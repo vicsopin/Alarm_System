@@ -121,8 +121,7 @@ char keyfind()
 		else
 		return(keypad[rowloc][3]);
 	}
-		
-	
+
 static void
 USART_init(uint16_t ubrr) // unsigned int
 {
@@ -139,7 +138,6 @@ USART_init(uint16_t ubrr) // unsigned int
 	// UCSR0C |= (1 << 3) | (3 << 1);
 	
 }
-
 
 static void
 USART_Transmit(unsigned char data, FILE *stream)
@@ -262,11 +260,6 @@ void printWelcomeMessage()
 	printf("that your actions may be monitored if unauthorized usage is suspected.\n");
 }
 
-unsigned long int password() {
-	printf("Enter password: ");
-    scanf("%lu", password);
-}
-
 void printAlarmMessage()
 {
 	printf("===================\n");
@@ -280,9 +273,9 @@ int main(void)
 	stdout = &uart_output;
 	stdin = &uart_input;
 
-	DDRB = 0b00000000; // PIR inputs
-    PORTB = 0b00000001; // PIR enable only first pin
-    DDRD = 0b00001100; // PIR outputs
+	//DDRB = 0b00000000; // PIR inputs
+    //PORTB = 0b00000001; // PIR enable only first pin
+    //DDRD = 0b00001100; // PIR outputs
 	
 	// Init LED output pins
 	DDRB |= (1 << 3) | (1 << 4) | (1 << 5);
@@ -305,53 +298,50 @@ int main(void)
             
             // I have a passive buzzer so need to oscillate
 			// Oscillation loop
-            for (i=0; i < 10; ++i)
+            for(int i=0; i < 10; ++i)
             {
                 PORTD |= (1<<PD2);
                 _delay_ms(1);
                 PORTD &= ~(1<<PD2);
                 _delay_ms(1);
             }
+		}
 		
 		// System is armed and movement is detected
 		if(armed && detectMovement())
 		{
-
+			// Turn on LED for motion detected, ask for password
+			PORTB |= _BV(PB4);
+			printf("\nMotion detected! Input password: \n\n");
 
 			/* FOR VICTOR AND UMAIR: Figure out how to*/
 			// start timer here
 			clock_t t;
-			t = clock();
-			int grace_period = 5000; // milliseconds or seconds?
+			//t = clock();
 			while(1) {
 
 				//- if timeout > grace_period:
-				t = clock() - t;
-				if(t > grace_period) {
+//				t = clock() - t;
+//				if(t > grace_period) {
+//
+//					//- fastBlink();
+//					PORTB |= _BV(PB5);
+//					_delay_ms(100);
+//                	PORTB &= ~_BV(PB5);
+//                	_delay_ms(100);
+//
+//					//- this needs to be called asyncronously OR
+//					//- we then use another LED to show that grace period ended
+//				//- ask for password
+//				}
 
-					//- fastBlink();
-					PORTB |= _BV(PB5);
-					_delay_ms(100);
-                	PORTB &= ~_BV(PB5);
-                	_delay_ms(100);
-
-					//- this needs to be called asyncronously OR
-					//- we then use another LED to show that grace period ended
-				//- ask for password
-				password();
-
-				if(password == code) {
+				if(combine_digits() == code) {
 					armed = false;
-					t = 0;
-					break
-				}
-				
+					//t = 0;
+					break;
 				}
 			}
-			// Turn on LED for motion detected, ask for password
-			PORTB |= _BV(PB4);
-			printf("\nMotion detected! Input password: \n\n");
-			
+
 			_delay_ms(10000);
 			printAlarmMessage();
 			// Timeout occured, blink fast and still ask for password
@@ -359,15 +349,8 @@ int main(void)
 			{
 				fastBlink();
 			}
-			
-
-			
-			
-			
-			
-			
-
 		}
+
 		// System is waiting to be armed, ask password
 		if(!armed && !timer)
 		{
