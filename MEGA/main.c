@@ -11,6 +11,7 @@
 
 uint8_t key_1, key_2, key_3, key_4;
 uint8_t key_arm = '0';
+uint8_t keys;
 
 
 int c;
@@ -124,9 +125,26 @@ int get_password() {
 }
 
 void check_password(password) {
-
-	if (sizeof(password) == 4 ){
-
+	keys = KEYPAD_GetKey();
+	
+	if (sizeof(keys) == 4 ){
+		for (i = 0; i < 3; i++)
+		{
+			if (keys[i] == password[i])
+			{
+				lcd_gotoxy(0,0);
+				lcd_clrscr();
+				lcd_puts("Correct password");
+				break;
+			} 
+			else
+			{
+				lcd_gotoxy(0,0);
+				lcd_clrscr();
+				lcd_puts("Wrong password");
+				continue;
+			}
+		}
 	}
 
 	else {
@@ -168,6 +186,8 @@ int main()
 				check_password();
 				break;
 				}
+				
+			check_password(password);
 		}
 
 	}
