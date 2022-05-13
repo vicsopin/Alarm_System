@@ -68,7 +68,14 @@ int get_password() {
 					case '0':
 						password[i] = '0';
 						i++;
-					case '/':
+					case '#':
+						i--;
+						password = password/10;
+						printf("%lu\n", password);
+					case '*':
+						if i > 4 break;
+						
+					/* case '/':
 						password[-1] = password[i+1];
 						i--;
 						lcd_gotoxy(0,i);
@@ -78,7 +85,7 @@ int get_password() {
 							c==3;
 
 						}
-						return password;
+						return password; */
 					default:
 						continue;
 				}
