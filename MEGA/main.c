@@ -1,3 +1,10 @@
+/*
+ * enter_backspace.c
+ *
+ * Created: 12/05/2022 18.45.15
+ * Author : sopin
+ */ 
+
 #define F_CPU 16000000UL
 #define FOSC 16000000UL // Clock Speed
 #define BAUD 9600
@@ -5,12 +12,15 @@
 #define FUNC_EXEC_TIME 5
 
 #include <stdio.h>
+#include <unistd.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <avr/io.h>
 #include <util/delay.h>
+#include <avr/io.h>
 #include <avr/eeprom.h>
+#include <avr/interrupt.h>
 #include <time.h>
 #include "lcd.h"
 #include "keypad.h"
@@ -27,7 +37,6 @@ bool buzzer = false;
 bool timer = false;
 //clock_t clock(void);
 
-
 static void USART_init(uint16_t ubrr) // unsigned int
 {
 	/* Set baud rate in the USART Baud Rate Registers (UBRR) */
@@ -43,7 +52,7 @@ static void USART_init(uint16_t ubrr) // unsigned int
 	// UCSR0C |= (1 << 3) | (3 << 1);
 	
 }
-static void USART_Transmit(unsigned char data, FILE *stream)
+static void USART_Transmit(unsigned char data)
 {
 	/* Wait until the transmit buffer is empty*/
 	while(!(UCSR0A & (1 << UDRE0)))
@@ -54,7 +63,7 @@ static void USART_Transmit(unsigned char data, FILE *stream)
 	/* Put the data into a buffer, then send/transmit the data */
 	UDR0 = data;
 }
-static char USART_Receive(FILE *stream)
+static char USART_Receive()
 {
 	/* Wait until the transmit buffer is empty*/
 	while(!(UCSR0A & (1 << UDRE0)))
@@ -85,7 +94,7 @@ FILE uart_input = FDEV_SETUP_STREAM(NULL, USART_Receive, _FDEV_SETUP_READ);
 bool checkPassword() {
 	
 	//this should be asynchronous, meaning that other code should continue when this executes
-	if(clock() > FUNC_EXEC_TIME * 1000) return FALSE;
+	//if(clock() > FUNC_EXEC_TIME * 1000) return FALSE;
 	
 	get_input();
 	if(strcmp(inputArray,code) == 0) {
@@ -198,6 +207,56 @@ void lcd_password_changed() {
 	lcd_puts("Password changed");
 }
 
+void lcd_alarm() {
+	printf("[LCD]	ALARM\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	lcd_puts("---- ALARM ----");
+}
+
+void buzz() {
+	PORTF |= (1<<PF0);
+	for (int i=0; i < 2500; ++i)
+	{
+		PORTF |= (1<<PF0);
+		_delay_ms(1);
+		PORTF &= ~(1<<PF0);
+		_delay_ms(1);
+	}
+}
+
+void grace_period(int duration) {
+	printf("[LCD]	why are you running\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	char row1[16];
+	sprintf(row1, "%d s grace",duration);
+	lcd_puts(row1);
+	for (unsigned int i=duration; i != 0; i--)
+	{
+		printf("[LCD]	Time left: %d\n",i);
+		lcd_gotoxy(0,1);
+		char row2[20];
+		sprintf(row2, "Time left: %d ",i);
+		lcd_puts(row2);
+		_delay_ms(1000);
+	}
+}
+
+void alarm_timeout() {
+	lcd_alarm();
+	buzz();
+	
+	//ask password
+	
+}
+
+// interrupt function
+ISR() {
+	TCNT3 = 0; //reset timer counter
+	
+}
+
 
 int main(void) {
 	
@@ -206,6 +265,30 @@ int main(void) {
 	stdin = &uart_input;
 	lcd_init(LCD_DISP_ON);
 	KEYPAD_Init();
+	DDRF = 0b00000001; // buzzer output
+	
+	// enable interrupts
+	sei();
+	
+	TCCR3B = 0;
+	TCNT3 = 0; //reset timer counter register
+	TCCR3A |= (1 << 6); //toggle some shit between registers A and B
+	
+	// waveform generation mode
+	TCCR3A |= (1 << 0); //set register A WGM bits
+	TCCR3B |= (1 << 4); //set register B WGM bits
+	
+	// prescale time division by N = 1024
+	TCCR3B |= ((1 << CS32) | (1 << CS30));
+	TIMSK3 |= (1 << 1); //interrupt when A register comparison matches
+	
+	// OCR3A = f_cpu / (2 * N * 0.1)
+	// f_cpu = 16 000 000
+	// N = 1024
+	// 10 seconds = 0.1 Hz
+	OCR3A = 78125; // 10 second grace period before ISR is called
+	
+	
 	
 	while(1){
 		// show system status at the start of the loop
@@ -215,7 +298,6 @@ int main(void) {
 		char input = KEYPAD_GetKey();
 		printf("Input %c\n",input);
 		
-		
 		switch(input)
 		{
 		case 'A': //arm the system
@@ -223,7 +305,23 @@ int main(void) {
 				lcd_ask_password();
 				if (checkPassword()) {
 					lcd_state_armed();
-					armed = true;
+					grace_period(15);
+
+					armed = TRUE;
+					
+					while(1){
+						// if movement detected
+						char msg = USART_Receive();
+						if(msg == "a") {
+							//enable timer
+							TCCR3B |= (1 << 0);
+				
+						}
+							// register sigalarm
+							// ask for password
+						//break;
+						
+					}
 				}
 				break;
 			} else {
@@ -232,18 +330,29 @@ int main(void) {
 				lcd_gotoxy(0,0);
 				lcd_puts("Already armed");
 				_delay_ms(1000);
-			}
+			} break;
 						
 		case 'C': //change or set the password
-			lcd_set_password();
-			if (checkPassword()) {
+			if(!armed) {
+				lcd_set_password();
+				if (checkPassword()) {
+					lcd_clrscr();
+					lcd_gotoxy(0,0);
+					lcd_puts("New password:");
+					get_input();
+					lcd_password_changed();
+					strcpy(code, inputArray);
+				}
+				break;
+			}
+			else {
+				printf("[LCD]	Unavailable while armed\n");
 				lcd_clrscr();
 				lcd_gotoxy(0,0);
-				lcd_puts("New password");
-				get_input();
-				
-				lcd_password_changed();
-				strcpy(code, inputArray);
+				lcd_puts("Unavailable");
+				lcd_gotoxy(0,1);
+				lcd_puts("while armed");
+				_delay_ms(1000);
 			}
 			break;
 			
