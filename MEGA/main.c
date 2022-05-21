@@ -1,10 +1,3 @@
-/*
- * enter_backspace.c
- *
- * Created: 12/05/2022 18.45.15
- * Author : sopin
- */ 
-
 #define F_CPU 16000000UL
 #define FOSC 16000000UL // Clock Speed
 #define BAUD 9600
@@ -31,11 +24,13 @@ char str;
 char inputArray[69];
 char code[69] = "6969";
 
-// system variables
-bool armed = true;
+// global state variables
+bool armed = false;
 bool buzzer = false;
-bool timer = false;
-//clock_t clock(void);
+bool timeout = false;
+
+// global timer variables
+unsigned int seconds;
 
 static void USART_init(uint16_t ubrr) // unsigned int
 {
@@ -78,37 +73,24 @@ static char USART_Receive()
 FILE uart_output = FDEV_SETUP_STREAM(USART_Transmit, NULL, _FDEV_SETUP_WRITE);
 FILE uart_input = FDEV_SETUP_STREAM(NULL, USART_Receive, _FDEV_SETUP_READ);
 
-//void timeout(double seconds, FN_PNTR) //Where FN_PNTR is a real function pointer
-//{
-	//time_t start = clock();
-	//while ((clock() - start) < seconds * CLOCKS_PER_SEC)
-	//{
-		//if ( ! FN_PNTR) /* if the operation fails based on the return value*/
-		//continue;
-		//else
-		//break; /* it worked */
-	//}
-	//exit(0); /* timed out... leave the program */
-//}
-
 bool checkPassword() {
 	
-	//this should be asynchronous, meaning that other code should continue when this executes
-	//if(clock() > FUNC_EXEC_TIME * 1000) return FALSE;
-	
-	get_input();
-	if(strcmp(inputArray,code) == 0) {
-		lcd_clrscr();
-		lcd_gotoxy(0, 0);
-		lcd_puts("Correct password");
-		printf("Correct password\n");
-		return TRUE;
-	}
-	else{
-		lcd_clrscr();
-		lcd_gotoxy(0, 0);
-		lcd_puts("Incorrect password");
-		printf("Incorrect password\n");
+	timer_start();
+		
+	if (!timeout) {
+		get_input();
+		if(strcmp(inputArray,code) == 0) {
+			lcd_correct_password();
+			return TRUE;
+		}
+		else {
+			lcd_incorrect_password();
+			return FALSE;
+		}
+	} else {
+		lcd_timeout();
+		timeout = FALSE;
+		timer_stop();
 		return FALSE;
 	}
 }
@@ -120,29 +102,73 @@ void get_input(){
 	
 	while(1) {
 		str = KEYPAD_GetKey();
-		if(str) {
-			if (str == 'A' || str == 'B' || str == 'C' || str == 'D') continue;
-
-			if (i >= 4 && str == '#')
-			{
-				printf("[INPUT]	%s\n",inputArray);
-				break;
-			}
-			if (str=='*' && i>0)
-			{
-				inputArray[i-1] = NULL;
-				i--;
-			}
-			else if (str=='*' && i==0){
-				continue;
-			}
-			else {
-				inputArray[i] = str;
-				i++;
-			}
-			printf("Input value: %c, i=%d\n", str, i);
+		printf("Input value: %c, i=%d\n", str, i);
+		
+		// backspace
+		if (str=='*' && i>0) {
+			inputArray[i-1] = NULL;
+			i--;
+			lcd_gotoxy(i,1);
+			lcd_putc(' ');
+			continue;
 		}
+		// prevents oscillating i
+		if (str=='*' && i==0) {
+			continue;
+		}
+		// exit condition
+		if (str == '#') {
+			printf("[INPUT]	%s\n",inputArray);
+			break;
+		}
+		// skip all alphabet
+		if (isalpha(str) > 1) {
+			printf("Skipping: %c, i=%d\n", str, i);
+			continue;
+		}
+		// add digits to array
+		if(isdigit(str)) {
+			inputArray[i] = str;
+			lcd_gotoxy(i,1);
+			lcd_putc(str);
+			i++;
+		}
+		
+		if (strlen(inputArray) == 2) {
+			printf("[INPUT]	3\n");
+			break;
+		}		
 	}
+}
+
+void lcd_incorrect_password() {
+	printf("[LCD]	Incorrect password\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	lcd_puts("Incorrect");
+	lcd_gotoxy(0,1);
+	lcd_puts("Password");
+	_delay_ms(3000);
+}
+
+void lcd_correct_password() {
+	printf("[LCD]	Correct password\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	lcd_puts("Correct");
+	lcd_gotoxy(0,1);
+	lcd_puts("Password");
+	_delay_ms(3000);
+}
+
+void lcd_timeout() {
+	printf("[LCD]	INPUT TIMEOUT\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	lcd_puts("Input");
+	lcd_gotoxy(0,1);
+	lcd_puts("Timeout");
+	_delay_ms(3000);
 }
 
 void lcd_state_armed() {
@@ -151,7 +177,7 @@ void lcd_state_armed() {
 	lcd_gotoxy(0,0);
 	lcd_puts("System Armed");
 	lcd_gotoxy(0,1);
-	lcd_puts("Press D to disarm");
+	lcd_puts("Waiting motion");
 	
 }
 
@@ -195,7 +221,7 @@ void lcd_print_status() {
 	if(armed) {
 		lcd_puts("System is armed");
 	} else {
-		lcd_puts("System is disarmed");
+		lcd_puts("System disarmed");
 	}
 	lcd_gotoxy(0,1);
 }
@@ -207,12 +233,21 @@ void lcd_password_changed() {
 	lcd_puts("Password changed");
 }
 
+void lcd_motion_detected() {
+	printf("[LCD]	motion detected...\n");
+	lcd_clrscr();
+	lcd_gotoxy(0,0);
+	lcd_puts("Motion detected");
+}
+
 void lcd_alarm() {
 	printf("[LCD]	ALARM\n");
 	lcd_clrscr();
 	lcd_gotoxy(0,0);
 	lcd_puts("---- ALARM ----");
 }
+
+
 
 void buzz() {
 	PORTF |= (1<<PF0);
@@ -243,20 +278,58 @@ void grace_period(int duration) {
 	}
 }
 
-void alarm_timeout() {
-	lcd_alarm();
-	buzz();
-	
-	//ask password
-	
+//interrupt function
+ISR(TIMER0_COMPA_vect) {
+	seconds++;
+	printf("[TIMER]	time: %u\n",seconds);
+	if(seconds == 5) {
+		timeout = TRUE;		
+	}
 }
 
-// interrupt function
-ISR() {
-	TCNT3 = 0; //reset timer counter
+void timer_init() {
+	//// enable interrupts
+	cli();
 	
+	//set the entire register to 0
+	TCCR3B = 0;
+	TCCR3A = 0;
+	
+	//reset timer counter register
+	TCNT3 = 0;
+	
+	// OCR3A = f_cpu / (2 * N * 0.1)
+	// f_cpu = 16 000 000
+	// N = 1024
+	// 10 seconds = 0.1 Hz
+	OCR3A = 15624; // ISR called every second
+	
+	// waveform generation mode
+	TCCR3A |= (1 << 0); //set register A WGM bits
+	TCCR3B |= (1 << WGM32); //set register B WGM bits
+	
+	// prescale time division by N = 1024
+	TCCR3B |= ((1 << CS32) | (1 << CS30));
+
+	sei();
 }
 
+void timer_start() {
+	//enable timer
+	TIMSK3 |= (1 << OCIE3A);
+}
+
+void timer_stop() {
+	//disable timer
+	TIMSK3 |= (0 << OCIE3A);
+	
+	//set the entire register to 0
+	TCCR3B = 0;
+	TCCR3A = 0;
+	
+	//reset timer counter register
+	TCNT3 = 0;
+}
 
 int main(void) {
 	
@@ -267,28 +340,7 @@ int main(void) {
 	KEYPAD_Init();
 	DDRF = 0b00000001; // buzzer output
 	
-	// enable interrupts
-	sei();
-	
-	TCCR3B = 0;
-	TCNT3 = 0; //reset timer counter register
-	TCCR3A |= (1 << 6); //toggle some shit between registers A and B
-	
-	// waveform generation mode
-	TCCR3A |= (1 << 0); //set register A WGM bits
-	TCCR3B |= (1 << 4); //set register B WGM bits
-	
-	// prescale time division by N = 1024
-	TCCR3B |= ((1 << CS32) | (1 << CS30));
-	TIMSK3 |= (1 << 1); //interrupt when A register comparison matches
-	
-	// OCR3A = f_cpu / (2 * N * 0.1)
-	// f_cpu = 16 000 000
-	// N = 1024
-	// 10 seconds = 0.1 Hz
-	OCR3A = 78125; // 10 second grace period before ISR is called
-	
-	
+	timer_init();
 	
 	while(1){
 		// show system status at the start of the loop
@@ -304,23 +356,39 @@ int main(void) {
 			if(!armed) {
 				lcd_ask_password();
 				if (checkPassword()) {
-					lcd_state_armed();
-					grace_period(15);
-
-					armed = TRUE;
 					
+					grace_period(5);
+					armed = TRUE;
+					lcd_state_armed();
 					while(1){
-						// if movement detected
-						char msg = USART_Receive();
-						if(msg == "a") {
-							//enable timer
-							TCCR3B |= (1 << 0);
-				
-						}
-							// register sigalarm
-							// ask for password
-						//break;
+						_delay_ms(1000);
 						
+						bool msg;
+						
+						for(int i = 0; i > 1000; i++) {
+							msg = USART_Receive();
+						}
+						
+						printf("[PIR]	msg: %d\n",msg);
+						// if movement detected
+						if(msg == 0) {
+							lcd_motion_detected();
+							buzz();
+							msg=NULL;
+							//_delay_ms(1000);
+							//enable timer
+							//TCCR3B |= (1 << 0);
+							
+							lcd_ask_password();
+							
+							//exit loop on correct password
+							if (checkPassword()) {
+								TCNT3 = 0; //reset timer counter
+								armed = FALSE;
+								break;
+							}
+						}
+						//_delay_ms(1000);						
 					}
 				}
 				break;
@@ -365,6 +433,7 @@ int main(void) {
 			break;
 		default:
 			lcd_print_help();
+			
 		}
 			
 	}	
